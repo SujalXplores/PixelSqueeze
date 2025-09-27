@@ -2,10 +2,12 @@ use anyhow::{Context, Result};
 use clap::{Parser, ValueEnum};
 use colored::*;
 use humansize::{format_size, DECIMAL};
-use image::ImageFormat;
+use image::{ImageFormat, GenericImageView};
 use indicatif::{ProgressBar, ProgressStyle};
+use rayon::prelude::*;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use walkdir::WalkDir;
 
 #[derive(Parser)]
@@ -50,14 +52,6 @@ enum OutputFormat {
 }
 
 impl OutputFormat {
-    fn to_image_format(&self) -> ImageFormat {
-        match self {
-            OutputFormat::Jpeg => ImageFormat::Jpeg,
-            OutputFormat::Png => ImageFormat::Png,
-            OutputFormat::Webp => ImageFormat::WebP,
-        }
-    }
-
     fn extension(&self) -> &str {
         match self {
             OutputFormat::Jpeg => "jpg",
@@ -67,6 +61,7 @@ impl OutputFormat {
     }
 }
 
+#[derive(Debug)]
 struct CompressionStats {
     files_processed: usize,
     original_size: u64,
@@ -128,30 +123,35 @@ fn main() -> Result<()> {
     );
 
     let pb = create_progress_bar(files.len());
-    let mut stats = CompressionStats::new();
+    let stats = Arc::new(Mutex::new(CompressionStats::new()));
+    let pb_arc = Arc::new(pb);
 
-    for file_path in files {
-        pb.set_message(format!(
+    // Process files in parallel for better performance
+    files.par_iter().for_each(|file_path| {
+        pb_arc.set_message(format!(
             "Processing {}",
             file_path.file_name().unwrap().to_string_lossy()
         ));
 
-        match compress_image(&file_path, &output_dir, &args) {
+        match compress_image(file_path, &output_dir, &args) {
             Ok((original_size, compressed_size)) => {
-                stats.files_processed += 1;
-                stats.original_size += original_size;
-                stats.compressed_size += compressed_size;
+                let mut stats_guard = stats.lock().unwrap();
+                stats_guard.files_processed += 1;
+                stats_guard.original_size += original_size;
+                stats_guard.compressed_size += compressed_size;
             }
             Err(e) => {
-                stats.errors.push(format!("{}: {}", file_path.display(), e));
+                let mut stats_guard = stats.lock().unwrap();
+                stats_guard.errors.push(format!("{}: {}", file_path.display(), e));
             }
         }
 
-        pb.inc(1);
-    }
+        pb_arc.inc(1);
+    });
 
-    pb.finish_with_message("Compression complete!");
-    print_results(&stats);
+    pb_arc.finish_with_message("Compression complete!");
+    let final_stats = Arc::try_unwrap(stats).unwrap().into_inner().unwrap();
+    print_results(&final_stats);
 
     Ok(())
 }
@@ -217,18 +217,32 @@ fn compress_image(input_path: &Path, output_dir: &Path, args: &Args) -> Result<(
     let img = image::open(input_path)
         .with_context(|| format!("Failed to open image: {}", input_path.display()))?;
 
-    let img = if let (Some(max_w), Some(max_h)) = (args.max_width, args.max_height) {
-        img.resize(max_w, max_h, image::imageops::FilterType::Lanczos3)
-    } else if let Some(max_w) = args.max_width {
-        let aspect_ratio = img.height() as f32 / img.width() as f32;
-        let new_height = (max_w as f32 * aspect_ratio) as u32;
-        img.resize_exact(max_w, new_height, image::imageops::FilterType::Lanczos3)
-    } else if let Some(max_h) = args.max_height {
-        let aspect_ratio = img.width() as f32 / img.height() as f32;
-        let new_width = (max_h as f32 * aspect_ratio) as u32;
-        img.resize_exact(new_width, max_h, image::imageops::FilterType::Lanczos3)
-    } else {
-        img
+    // Only resize if dimensions are specified by user
+    let img = match (args.max_width, args.max_height) {
+        (Some(max_w), Some(max_h)) => {
+            img.resize(max_w, max_h, image::imageops::FilterType::Triangle)
+        }
+        (Some(max_w), None) => {
+            let (width, height) = img.dimensions();
+            if width > max_w {
+                let aspect_ratio = height as f32 / width as f32;
+                let new_height = (max_w as f32 * aspect_ratio) as u32;
+                img.resize(max_w, new_height, image::imageops::FilterType::Triangle)
+            } else {
+                img
+            }
+        }
+        (None, Some(max_h)) => {
+            let (width, height) = img.dimensions();
+            if height > max_h {
+                let aspect_ratio = width as f32 / height as f32;
+                let new_width = (max_h as f32 * aspect_ratio) as u32;
+                img.resize(new_width, max_h, image::imageops::FilterType::Triangle)
+            } else {
+                img
+            }
+        }
+        (None, None) => img,
     };
 
     let output_filename = format!(
@@ -244,15 +258,31 @@ fn compress_image(input_path: &Path, output_dir: &Path, args: &Args) -> Result<(
             use std::io::BufWriter;
             
             let output_file = fs::File::create(&output_path)?;
-            let mut writer = BufWriter::new(output_file);
-            let encoder = JpegEncoder::new_with_quality(&mut writer, args.quality);
+            let writer = BufWriter::with_capacity(64 * 1024, output_file); // 64KB buffer
+            let encoder = JpegEncoder::new_with_quality(writer, args.quality);
             img.write_with_encoder(encoder)?;
         }
         OutputFormat::Png => {
-            img.save_with_format(&output_path, args.format.to_image_format())?;
+            use image::codecs::png::PngEncoder;
+            use std::io::BufWriter;
+            
+            let output_file = fs::File::create(&output_path)?;
+            let writer = BufWriter::with_capacity(64 * 1024, output_file); // 64KB buffer
+            let encoder = PngEncoder::new(writer);
+            img.write_with_encoder(encoder)?;
         }
         OutputFormat::Webp => {
-            img.save_with_format(&output_path, args.format.to_image_format())?;
+            // Convert to RGB8 and use webp crate for proper quality control
+            let rgb_img = img.to_rgb8();
+            let (width, height) = rgb_img.dimensions();
+            
+            let webp_data = if args.quality >= 100 {
+                webp::Encoder::from_rgb(&rgb_img, width, height).encode_lossless()
+            } else {
+                webp::Encoder::from_rgb(&rgb_img, width, height).encode(args.quality as f32)
+            };
+            
+            std::fs::write(&output_path, &*webp_data)?;
         }
     }
 
@@ -285,13 +315,17 @@ fn print_results(stats: &CompressionStats) {
     );
 
     let savings = stats.savings_percent();
-    let savings_text = if savings >= 0.0 {
+    let savings_text = if savings > 0.0 {
         format!("{:.1}% saved", savings)
-    } else {
+    } else if savings < 0.0 {
         format!("{:.1}% larger", -savings)
+    } else {
+        "No change".to_string()
     };
-    let colored_savings = if savings >= 0.0 {
+    let colored_savings = if savings > 0.0 {
         savings_text.green().bold()
+    } else if savings < 0.0 {
+        savings_text.red().bold()
     } else {
         savings_text.yellow().bold()
     };
