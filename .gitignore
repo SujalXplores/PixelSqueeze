@@ -1,0 +1,27 @@
+# Rust
+/target/
+Cargo.lock
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Output directories (examples)
+/compressed/
+/webp_output/
+/resized_output/
+/demo_*/
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.temp

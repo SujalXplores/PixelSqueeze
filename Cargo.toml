@@ -1,0 +1,24 @@
+[package]
+name = "image-compressor"
+version = "1.0.0"
+edition = "2021"
+authors = ["Your Name <your.email@example.com>"]
+description = "A fast, beautiful image compression tool with support for JPEG, PNG, and WebP formats"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/yourusername/image-compressor"
+keywords = ["image", "compression", "cli", "jpeg", "webp"]
+categories = ["command-line-utilities", "multimedia::images"]
+readme = "README.md"
+
+[[bin]]
+name = "compress"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.4", features = ["derive"] }
+image = { version = "0.24", features = ["jpeg", "png", "webp"] }
+indicatif = "0.17"
+colored = "2.0"
+anyhow = "1.0"
+walkdir = "2.4"
+humansize = "2.1"
