@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, ValueEnum};
 use colored::*;
 use humansize::{format_size, DECIMAL};
-use image::{ImageFormat, ImageOutputFormat};
+use image::ImageFormat;
 use indicatif::{ProgressBar, ProgressStyle};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -157,10 +157,10 @@ fn main() -> Result<()> {
 }
 
 fn print_banner() {
-    println!("{}", "╔══════════════════════════════════════╗".cyan());
+    println!("{}", "╔═════════════════════════════════════╗".cyan());
     println!("{}", "║        🎨 Image Compressor 🎨       ".cyan());
     println!("{}", "║     Fast • Beautiful • Efficient   ".cyan());
-    println!("{}", "╚══════════════════════════════════════╝".cyan());
+    println!("{}", "╚═════════════════════════════════════╝".cyan());
     println!();
 }
 
@@ -240,8 +240,13 @@ fn compress_image(input_path: &Path, output_dir: &Path, args: &Args) -> Result<(
 
     match args.format {
         OutputFormat::Jpeg => {
-            let mut output = fs::File::create(&output_path)?;
-            img.write_to(&mut output, ImageOutputFormat::Jpeg(args.quality))?;
+            use image::codecs::jpeg::JpegEncoder;
+            use std::io::BufWriter;
+            
+            let output_file = fs::File::create(&output_path)?;
+            let mut writer = BufWriter::new(output_file);
+            let encoder = JpegEncoder::new_with_quality(&mut writer, args.quality);
+            img.write_with_encoder(encoder)?;
         }
         OutputFormat::Png => {
             img.save_with_format(&output_path, args.format.to_image_format())?;
