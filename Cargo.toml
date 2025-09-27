@@ -1,17 +1,17 @@
 [package]
-name = "image-compressor"
+name = "pixelsqueeze"
 version = "1.0.0"
 edition = "2021"
-authors = ["Your Name <your.email@example.com>"]
-description = "A fast, beautiful image compression tool with support for JPEG, PNG, and WebP formats"
-license = "MIT OR Apache-2.0"
-repository = "https://github.com/yourusername/image-compressor"
-keywords = ["image", "compression", "cli", "jpeg", "webp"]
+authors = ["SujalXplores"]
+description = "🎨 Squeeze pixels, not quality! Lightning-fast image compression that makes your files smaller while keeping them stunning"
+license = "MIT"
+repository = "https://github.com/SujalXplores/PixelSqueeze"
+keywords = ["image", "compression", "cli", "optimization", "webp"]
 categories = ["command-line-utilities", "multimedia::images"]
 readme = "README.md"
 
 [[bin]]
-name = "compress"
+name = "pixelsqueeze"
 path = "src/main.rs"
 
 [dependencies]
