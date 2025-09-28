@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, ValueEnum};
 use colored::*;
 use humansize::{format_size, DECIMAL};
-use image::{ImageFormat, GenericImageView};
+use image::GenericImageView;
 use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
 use std::fs;

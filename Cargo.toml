@@ -1,7 +1,7 @@
 [package]
 name = "pixelsqueeze"
 version = "1.0.0"
-edition = "2021"
+edition = "2024"
 authors = ["SujalXplores"]
 description = "🎨 Squeeze pixels, not quality! Lightning-fast image compression that makes your files smaller while keeping them stunning"
 license = "MIT"
