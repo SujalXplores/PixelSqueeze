@@ -30,16 +30,33 @@ PixelSqueeze is a blazingly fast, developer-friendly image compression tool that
 
 ## 🚀 Installation
 
+### Quick Install (Recommended)
+```bash
+cargo install pixelsqueeze
+```
+
+### One-Line Install Scripts
+**Windows (PowerShell):**
+```powershell
+irm https://raw.githubusercontent.com/SujalXplores/PixelSqueeze/main/install.ps1 | iex
+```
+
+**macOS/Linux:**
+```bash
+curl -sSL https://raw.githubusercontent.com/SujalXplores/PixelSqueeze/main/install.sh | bash
+```
+
+### Pre-built Binaries
+Download from [GitHub Releases](https://github.com/SujalXplores/PixelSqueeze/releases) for:
+- Windows (x64)
+- macOS (x64) 
+- Linux (x64)
+
 ### From Source
 ```bash
 git clone https://github.com/SujalXplores/PixelSqueeze.git
 cd PixelSqueeze
 cargo build --release
-```
-
-### Using Cargo
-```bash
-cargo install pixelsqueeze
 ```
 
 ### Quick Start

@@ -6,9 +6,17 @@ authors = ["SujalXplores"]
 description = "🎨 Squeeze pixels, not quality! Lightning-fast image compression that makes your files smaller while keeping them stunning"
 license = "MIT"
 repository = "https://github.com/SujalXplores/PixelSqueeze"
+homepage = "https://github.com/SujalXplores/PixelSqueeze"
+documentation = "https://github.com/SujalXplores/PixelSqueeze"
 keywords = ["image", "compression", "cli", "optimization", "webp"]
 categories = ["command-line-utilities", "multimedia::images"]
 readme = "README.md"
+exclude = [
+    "images/*",
+    "compressed/*",
+    "target/*",
+    ".git/*"
+]
 
 [[bin]]
 name = "pixelsqueeze"
