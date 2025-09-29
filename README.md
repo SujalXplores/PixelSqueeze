@@ -1,12 +1,33 @@
-# 🎨 PixelSqueeze
+
+<pre>
+  _____ _          _  _____                               
+ |  __ (_)        | |/ ____|                              
+ | |__) |__  _____| | (___   __ _ _   _  ___  ___ _______ 
+ |  ___/ \ \/ / _ \ |\___ \ / _` | | | |/ _ \/ _ \_  / _ \
+ | |   | |>  <  __/ |____) | (_| | |_| |  __/  __// /  __/
+ |_|   |_/_/\_\___|_|_____/ \__, |\__,_|\___|\___/___\___|
+                               | |                        
+                               |_|                        
+</pre>
+
+<div align="center">
+<b><i>Squeeze pixels, not quality!</i> ✨</b>
+</div>
 
 [![Rust](https://img.shields.io/badge/rust-1.70+-orange.svg)](https://www.rust-lang.org)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE)
 [![GitHub](https://img.shields.io/badge/github-SujalXplores/PixelSqueeze-blue.svg)](https://github.com/SujalXplores/PixelSqueeze)
 
-> **Squeeze pixels, not quality!** ✨
+
+<p align="center">
+	<img src="https://img.shields.io/github/stars/SujalXplores/PixelSqueeze?style=social" alt="GitHub stars">
+	<img src="https://img.shields.io/github/forks/SujalXplores/PixelSqueeze?style=social" alt="GitHub forks">
+	<img src="https://img.shields.io/github/issues/SujalXplores/PixelSqueeze?color=yellow" alt="GitHub issues">
+</p>
 
 PixelSqueeze is a blazingly fast, developer-friendly image compression tool that shrinks your files without compromising visual excellence. Built with Rust for maximum performance and wrapped in a beautiful CLI that makes compression actually enjoyable.
+
+---
 
 ## 🚀 Why PixelSqueeze?
 
@@ -29,7 +50,7 @@ PixelSqueeze is a blazingly fast, developer-friendly image compression tool that
 - **Error Resilience** - Graceful error handling with informative messages
 - **🔒 100% Local Processing** - Your images never leave your machine - no uploads, no cloud processing
 
-## 🚀 Installation
+## ⚡ Installation
 
 ### Quick Install (Recommended)
 ```bash
@@ -60,7 +81,9 @@ cd PixelSqueeze
 cargo build --release
 ```
 
-### Quick Start
+---
+
+## 🏁 Quick Start
 ```bash
 # Compress a single image
 pixelsqueeze photo.jpg
@@ -71,6 +94,8 @@ pixelsqueeze images/ --quality 85 --recursive
 # Convert to WebP for maximum savings
 pixelsqueeze photos/ --format webp --output optimized/
 ```
+
+---
 
 ## 💫 Usage Examples
 
@@ -104,6 +129,8 @@ pixelsqueeze posts/ --max-width 1080 --max-height 1080 --quality 85
 pixelsqueeze documents/ --quality 70 --max-width 800 --recursive
 ```
 
+---
+
 ## 🎯 Command Line Options
 
 | Option | Short | Description | Default |
@@ -116,7 +143,9 @@ pixelsqueeze documents/ --quality 70 --max-width 800 --recursive
 | `--max-height` | | Maximum height for resizing | None |
 | `--help` | `-h` | Show help information | |
 
-## 🎯 Real-World Impact
+---
+
+## Real-World Impact
 
 **Before PixelSqueeze:**
 - 📸 5MB photo → 😱 Slow website loading
@@ -128,6 +157,8 @@ pixelsqueeze documents/ --quality 70 --max-width 800 --recursive
 - 📁 1GB → 350MB → 💚 Happy storage space
 - 🔄 One command → 🚀 Entire folder optimized in seconds
 
+---
+
 ## 🏆 Performance Stats
 
 | Metric | Result |
@@ -138,6 +169,8 @@ pixelsqueeze documents/ --quality 70 --max-width 800 --recursive
 | **Savings** | 30-80% size reduction |
 | **Formats** | JPEG, PNG, WebP |
 
+---
+
 ## 🔒 Privacy & Security
 
 **Your images stay on your machine.** PixelSqueeze processes everything locally - no internet connection required, no uploads, no cloud processing. Your photos and data remain completely private and secure.
@@ -147,6 +180,8 @@ pixelsqueeze documents/ --quality 70 --max-width 800 --recursive
 - ✅ **No Cloud Uploads** - Images never leave your device
 - ✅ **Open Source** - Fully auditable code
 
+---
+
 ## 🛠️ System Requirements
 
 - **Rust**: 1.70+ (for building from source)
@@ -154,12 +189,16 @@ pixelsqueeze documents/ --quality 70 --max-width 800 --recursive
 - **Memory**: Minimal RAM usage thanks to streaming
 - **Storage**: Tiny binary, massive impact
 
+---
+
 ## 🌟 Created By
 
 **SujalXplores** - Passionate about making developer tools that don't suck.
 
 - 🐙 GitHub: [@SujalXplores](https://github.com/SujalXplores)
 - 🚀 Project: [PixelSqueeze](https://github.com/SujalXplores/PixelSqueeze)
+
+---
 
 ## 🤝 Contributing
 
@@ -171,6 +210,8 @@ Found a bug? Have a cool feature idea? Contributions make the open-source world 
 4. Push to the branch (`git push origin amazing-feature`)
 5. Open a Pull Request
 
+---
+
 ## 📄 License
 
 This project is licensed under the **MIT License** ([LICENSE-MIT](LICENSE-MIT)) - simple, permissive, and developer-friendly!
@@ -179,8 +220,9 @@ This project is licensed under the **MIT License** ([LICENSE-MIT](LICENSE-MIT)) 
 
 <div align="center">
 
-**Made with ❤️ and lots of ☕ by SujalXplores**
 
-*If PixelSqueeze saved you time, consider giving it a ⭐ on GitHub!*
+<b>Made with ❤️ and lots of ☕ by <a href="https://github.com/SujalXplores">SujalXplores</a></b>
+
+<i>If PixelSqueeze saved you time, consider giving it a ⭐ on <a href="https://github.com/SujalXplores/PixelSqueeze">GitHub</a>!</i>
 
 </div>
