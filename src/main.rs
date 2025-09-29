@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use clap::{Parser, ValueEnum};
 use colored::Colorize;
+use comfy_table::Table;
 use humansize::{format_size, DECIMAL};
 
 use indicatif::{ProgressBar, ProgressStyle};
@@ -48,7 +49,7 @@ struct Args {
     )]
     keep_metadata: bool,
 
-    #[arg(short, long, default_value = "jpeg", help = "Output format")]
+    #[arg(short, long, default_value = "png", help = "Output format")]
     format: OutputFormat,
 
     #[arg(short, long, help = "Recursive directory processing")]
@@ -76,6 +77,7 @@ impl OutputFormat {
 
 #[derive(Debug, Clone)]
 struct FileResult {
+    filename: String,
     original_size: u64,
     compressed_size: u64,
 }
@@ -195,7 +197,7 @@ fn process_files_parallel(
         // Force compression - no skipping allowed
         let result = compress_image_force(file_path, output_dir, args)
             .map(|(original_size, compressed_size)| {
-                create_file_result(original_size, compressed_size)
+                create_file_result(filename.clone(), original_size, compressed_size)
             });
 
         match result {
@@ -223,10 +225,12 @@ fn process_files_parallel(
 }
 
 fn create_file_result(
+    filename: String,
     original_size: u64,
     compressed_size: u64,
 ) -> FileResult {
     FileResult {
+        filename,
         original_size,
         compressed_size,
     }
@@ -447,6 +451,25 @@ fn compress_webp(img: &image::DynamicImage, output_path: &Path, quality: u8) -> 
 }
 
 fn print_results(stats: &CompressionStats, processing_time: std::time::Duration, _total_time: std::time::Duration) {
+    if !stats.file_results.is_empty() {
+        let mut table = Table::new();
+        table.set_header(vec!["Filename", "Original", "Compressed", "Savings"]);
+
+        for result in &stats.file_results {
+            let original = format_size(result.original_size, DECIMAL);
+            let compressed = format_size(result.compressed_size, DECIMAL);
+            let savings_bytes = result.original_size.saturating_sub(result.compressed_size);
+            let savings = if result.original_size > 0 {
+                format!("{} ({:.1}%)", format_size(savings_bytes, DECIMAL), (savings_bytes as f64 / result.original_size as f64) * 100.0)
+            } else {
+                "0 B (0.0%)".to_string()
+            };
+            table.add_row(vec![&result.filename, &original, &compressed, &savings]);
+        }
+
+        println!("{}", table);
+    }
+
     let original_text = format_size(stats.original_size, DECIMAL);
     let compressed_text = format_size(stats.compressed_size, DECIMAL);
     let savings = stats.savings_percent();
@@ -454,7 +477,7 @@ fn print_results(stats: &CompressionStats, processing_time: std::time::Duration,
     let savings_text = format_size(savings_bytes, DECIMAL);
     
     println!();
-    println!("{} {} files processed", "✅".bright_green(), stats.files_processed.to_string().bright_white().bold());
+    println!("{} files processed", stats.files_processed.to_string().bright_white().bold());
     println!("Original: {} → Compressed: {}", original_text.bright_cyan(), compressed_text.bright_cyan());
     
     if savings > 0.0 {
@@ -464,7 +487,7 @@ fn print_results(stats: &CompressionStats, processing_time: std::time::Duration,
     println!("Time: {}", format!("{:.2?}", processing_time).bright_cyan());
     
     if !stats.errors.is_empty() {
-        println!("{} {} errors", "⚠️".bright_red(), stats.errors.len());
+        println!("{} errors", stats.errors.len());
     }
 }
 
