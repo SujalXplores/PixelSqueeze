@@ -27,6 +27,7 @@ PixelSqueeze is a blazingly fast, developer-friendly image compression tool that
 - **Smart Resizing** - Maintain aspect ratios with optional dimension constraints
 - **Progress Tracking** - Real-time progress bars with detailed statistics
 - **Error Resilience** - Graceful error handling with informative messages
+- **🔒 100% Local Processing** - Your images never leave your machine - no uploads, no cloud processing
 
 ## 🚀 Installation
 
@@ -120,7 +121,7 @@ pixelsqueeze documents/ --quality 70 --max-width 800 --recursive
 **Before PixelSqueeze:**
 - 📸 5MB photo → 😱 Slow website loading
 - 📁 1GB photo folder → 💾 Storage nightmare
-- �  Manual compression → ⏰ Hours of tedious work
+- 🖱️ Manual compression → ⏰ Hours of tedious work
 
 **After PixelSqueeze:**
 - 📸 5MB → 1.2MB → ⚡ Lightning-fast loading
@@ -136,6 +137,15 @@ pixelsqueeze documents/ --quality 70 --max-width 800 --recursive
 | **Quality** | Visually lossless compression |
 | **Savings** | 30-80% size reduction |
 | **Formats** | JPEG, PNG, WebP |
+
+## 🔒 Privacy & Security
+
+**Your images stay on your machine.** PixelSqueeze processes everything locally - no internet connection required, no uploads, no cloud processing. Your photos and data remain completely private and secure.
+
+- ✅ **100% Offline Processing** - Works without internet
+- ✅ **No Data Collection** - Zero telemetry or analytics
+- ✅ **No Cloud Uploads** - Images never leave your device
+- ✅ **Open Source** - Fully auditable code
 
 ## 🛠️ System Requirements
 
