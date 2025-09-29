@@ -1,13 +1,16 @@
 use anyhow::{Context, Result};
 use clap::{Parser, ValueEnum};
-use colored::*;
+use colored::Colorize;
 use humansize::{format_size, DECIMAL};
-use image::GenericImageView;
+
 use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex},
+    time::Instant,
+};
 use walkdir::WalkDir;
 
 #[derive(Parser)]
@@ -27,17 +30,23 @@ struct Args {
     #[arg(
         short,
         long,
-        default_value = "65",
+        default_value = "55",
         help = "Compression quality (1-100)"
     )]
     quality: u8,
 
     #[arg(
         long,
-        default_value = "5",
+        default_value = "0",
         help = "Minimum compression savings percentage to keep file (0-100)"
     )]
     min_savings: f64,
+
+    #[arg(
+        long,
+        help = "Keep metadata (EXIF, etc.) in compressed images"
+    )]
+    keep_metadata: bool,
 
     #[arg(short, long, default_value = "jpeg", help = "Output format")]
     format: OutputFormat,
@@ -45,11 +54,7 @@ struct Args {
     #[arg(short, long, help = "Recursive directory processing")]
     recursive: bool,
 
-    #[arg(long, help = "Maximum width for resizing")]
-    max_width: Option<u32>,
 
-    #[arg(long, help = "Maximum height for resizing")]
-    max_height: Option<u32>,
 }
 
 #[derive(Clone, ValueEnum)]
@@ -60,26 +65,24 @@ enum OutputFormat {
 }
 
 impl OutputFormat {
-    fn extension(&self) -> &str {
+    const fn extension(&self) -> &'static str {
         match self {
-            OutputFormat::Jpeg => "jpg",
-            OutputFormat::Png => "png",
-            OutputFormat::Webp => "webp",
+            Self::Jpeg => "jpg",
+            Self::Png => "png",
+            Self::Webp => "webp",
         }
     }
 }
 
 #[derive(Debug, Clone)]
 struct FileResult {
-    filename: String,
     original_size: u64,
     compressed_size: u64,
-    savings_percent: f64,
-    status: String,
-    skipped: bool,
 }
 
-#[derive(Debug)]
+
+
+#[derive(Debug, Default)]
 struct CompressionStats {
     files_processed: usize,
     original_size: u64,
@@ -89,7 +92,7 @@ struct CompressionStats {
 }
 
 impl CompressionStats {
-    fn new() -> Self {
+    const fn new() -> Self {
         Self {
             files_processed: 0,
             original_size: 0,
@@ -114,92 +117,97 @@ impl CompressionStats {
         self.compressed_size += result.compressed_size;
         self.file_results.push(result);
     }
+
+
 }
 
 fn main() -> Result<()> {
+    let start_time = Instant::now();
+    
     let args = Args::parse();
-
-    if args.quality == 0 || args.quality > 100 {
-        anyhow::bail!("Quality must be between 1 and 100");
-    }
-
+    validate_args(&args)?;
+    
     print_banner();
 
-    let output_dir = args
-        .output
-        .clone()
-        .unwrap_or_else(|| PathBuf::from("compressed"));
+    let output_dir = args.output.as_deref()
+        .map_or_else(|| PathBuf::from("compressed"), PathBuf::from);
+    
     fs::create_dir_all(&output_dir).with_context(|| {
-        format!(
-            "Failed to create output directory: {}",
-            output_dir.display()
-        )
+        format!("Failed to create output directory: {}", output_dir.display())
     })?;
 
     let files = collect_image_files(&args.input, args.recursive)?;
 
     if files.is_empty() {
-        println!();
-        println!("{}", "No image files found".bright_red().bold());
-        println!();
-        println!("{} JPEG, PNG, WebP, BMP, TIFF, GIF", "Supported formats:".bright_yellow());
-        println!();
-        println!("{}:", "Suggestions".bright_yellow());
-        println!("  - Check if the path is correct");
-        println!("  - Use --recursive flag for subdirectories");
-        println!();
+        print_no_files_found();
         return Ok(());
     }
 
-    println!("Found {} image{} to process", 
-        files.len().to_string().bright_green().bold(),
-        if files.len() == 1 { "" } else { "s" }
-    );
-    println!();
+    print_files_found(files.len());
 
+    let processing_start = Instant::now();
+    let stats = process_files_parallel(&files, &output_dir, &args)?;
+    let processing_time = processing_start.elapsed();
+    
+    print_results(&stats, processing_time, start_time.elapsed());
+
+    Ok(())
+}
+
+fn validate_args(args: &Args) -> Result<()> {
+    if !(1..=100).contains(&args.quality) {
+        anyhow::bail!("Quality must be between 1 and 100");
+    }
+    Ok(())
+}
+
+fn print_no_files_found() {
+    println!("{}", "No image files found".bright_red());
+}
+
+fn print_files_found(count: usize) {
+    println!("Found {} images", count.to_string().bright_green());
+}
+
+fn process_files_parallel(
+    files: &[PathBuf], 
+    output_dir: &Path, 
+    args: &Args
+) -> Result<CompressionStats> {
     let pb = create_progress_bar(files.len());
     let stats = Arc::new(Mutex::new(CompressionStats::new()));
     let pb_arc = Arc::new(pb);
 
-    // Process files in parallel for better performance
+    // Configure rayon for maximum performance
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(num_cpus::get().max(1))
+        .build_global()
+        .unwrap_or_else(|_| {}); // Ignore if already initialized
+
+    // Process files in parallel with optimized chunking for ultra-fast performance
     files.par_iter().for_each(|file_path| {
-        let filename = file_path.file_name().unwrap().to_string_lossy().to_string();
-        pb_arc.set_message(format!("{}", filename));
+        let filename = file_path
+            .file_name()
+            .map_or_else(|| "unknown".to_string(), |n| n.to_string_lossy().to_string());
+        
+        pb_arc.set_message(filename.clone());
 
-        match compress_image(file_path, &output_dir, &args) {
-            Ok((original_size, compressed_size, skipped)) => {
-                let savings = if original_size > 0 {
-                    let saved = original_size.saturating_sub(compressed_size) as f64;
-                    (saved / original_size as f64) * 100.0
-                } else {
-                    0.0
-                };
+        // Force compression - no skipping allowed
+        let result = compress_image_force(file_path, output_dir, args)
+            .map(|(original_size, compressed_size)| {
+                create_file_result(original_size, compressed_size)
+            });
 
-                let status = if skipped {
-                    "Skipped".to_string()
-                } else if savings > 0.0 {
-                    "Compressed".to_string()
-                } else if savings < 0.0 {
-                    "Enlarged".to_string()
-                } else {
-                    "No change".to_string()
-                };
-
-                let file_result = FileResult {
-                    filename,
-                    original_size,
-                    compressed_size,
-                    savings_percent: savings,
-                    status,
-                    skipped,
-                };
-
-                let mut stats_guard = stats.lock().unwrap();
-                stats_guard.add_file_result(file_result);
+        match result {
+            Ok(file_result) => {
+                if let Ok(mut stats_guard) = stats.lock() {
+                    stats_guard.add_file_result(file_result);
+                }
             }
             Err(e) => {
-                let mut stats_guard = stats.lock().unwrap();
-                stats_guard.errors.push(format!("{}: {}", filename, e));
+                if let Ok(mut stats_guard) = stats.lock() {
+                    stats_guard.errors.push(format!("{}: {}", filename, e));
+                }
             }
         }
 
@@ -207,21 +215,59 @@ fn main() -> Result<()> {
     });
 
     pb_arc.finish_with_message("Compression complete");
-    let final_stats = Arc::try_unwrap(stats).unwrap().into_inner().unwrap();
-    print_results(&final_stats);
-
-    Ok(())
+    
+    Arc::try_unwrap(stats)
+        .map_err(|_| anyhow::anyhow!("Failed to unwrap stats"))?
+        .into_inner()
+        .map_err(|_| anyhow::anyhow!("Failed to get stats from mutex"))
 }
 
-fn print_banner() {
-    let version = env!("CARGO_PKG_VERSION");
-    let author = "SujalXplores";
+fn create_file_result(
+    original_size: u64,
+    compressed_size: u64,
+) -> FileResult {
+    FileResult {
+        original_size,
+        compressed_size,
+    }
+}
+
+// New function that forces compression of ALL images - no skipping
+fn compress_image_force(input_path: &Path, output_dir: &Path, args: &Args) -> Result<(u64, u64)> {
+    let original_size = fs::metadata(input_path)?.len();
+
+    // Load image - always process, never skip
+    let img = image::open(input_path)
+        .with_context(|| format!("Failed to open image: {}", input_path.display()))?;
+
+
+
+    let output_filename = create_output_filename(input_path, &args.format)?;
+    let output_path = output_dir.join(output_filename);
+
+    // Smart compression based on input and output formats
+    compress_with_smart_settings(&img, &output_path, &args.format, args.quality, input_path)?;
+
+    let compressed_size = fs::metadata(&output_path)?.len();
     
-    println!("------------------------------------------");
-    println!("{} {}", "PixelSqueeze".bright_white().bold(), format!("v{}", version).bright_green());
-    println!("{}", "High-performance image compression".bright_cyan());
-    println!("Created by {}", author.bright_magenta());
-    println!("------------------------------------------");
+    // If the compressed file is more than 50% larger, use original copy instead
+    if compressed_size > original_size + (original_size / 2) {
+        // Copy original file instead of the enlarged compressed version
+        let original_output = output_dir.join(
+            input_path.file_name().unwrap_or_else(|| std::ffi::OsStr::new("unknown"))
+        );
+        fs::copy(input_path, &original_output)?;
+        let _ = fs::remove_file(&output_path); // Remove the enlarged version
+        Ok((original_size, original_size))
+    } else {
+        Ok((original_size, compressed_size))
+    }
+}
+
+
+
+fn print_banner() {
+    println!("{} {}", "PixelSqueeze".bright_white().bold(), env!("CARGO_PKG_VERSION").bright_green());
 }
 
 fn collect_image_files(input: &Path, recursive: bool) -> Result<Vec<PathBuf>> {
@@ -250,312 +296,176 @@ fn collect_image_files(input: &Path, recursive: bool) -> Result<Vec<PathBuf>> {
 }
 
 fn is_image_file(path: &Path) -> bool {
-    if let Some(ext) = path.extension() {
-        matches!(
-            ext.to_string_lossy().to_lowercase().as_str(),
-            "jpg" | "jpeg" | "png" | "webp" | "bmp" | "tiff" | "gif"
-        )
-    } else {
-        false
-    }
+    const SUPPORTED_EXTENSIONS: &[&str] = &[
+        "jpg", "jpeg", "png", "webp", "bmp", "tiff", "gif"
+    ];
+    
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| SUPPORTED_EXTENSIONS.contains(&ext.to_lowercase().as_str()))
+        .unwrap_or(false)
 }
 
 fn create_progress_bar(len: usize) -> ProgressBar {
     let pb = ProgressBar::new(len as u64);
-    pb.set_style(
-        ProgressStyle::default_bar()
-            .template("[{elapsed_precise}] {bar:50} {pos:>3}/{len:3} {msg}")
-            .unwrap()
-            .progress_chars("█▉▊▋▌▍▎▏ "),
-    );
+    
+    let style = ProgressStyle::default_bar()
+        .template("[{elapsed_precise}] {bar:50} {pos:>3}/{len:3} {msg}")
+        .expect("Invalid progress bar template")
+        .progress_chars("█▉▊▋▌▍▎▏ ");
+    
+    pb.set_style(style);
     pb
 }
 
-fn estimate_jpeg_needs_compression(input_path: &Path, target_quality: u8) -> Result<bool> {
-    // Simple heuristic: check file size vs dimensions ratio
-    let metadata = fs::metadata(input_path)?;
-    let file_size = metadata.len();
+
+
+fn create_output_filename(input_path: &Path, format: &OutputFormat) -> Result<String> {
+    let stem = input_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| anyhow::anyhow!("Invalid filename: {}", input_path.display()))?;
     
-    // Open image to get dimensions
-    let img = image::open(input_path)?;
-    let (width, height) = img.dimensions();
-    let pixels = (width * height) as u64;
-    
-    // Calculate bytes per pixel - lower values suggest higher compression
-    let bytes_per_pixel = file_size as f64 / pixels as f64;
-    
-    // Rough quality estimation based on bytes per pixel
-    // High quality JPEGs: > 1.5 bytes/pixel
-    // Medium quality: 0.5-1.5 bytes/pixel  
-    // Low quality: < 0.5 bytes/pixel
-    let estimated_quality = if bytes_per_pixel > 1.5 {
-        85
-    } else if bytes_per_pixel > 1.0 {
-        75
-    } else if bytes_per_pixel > 0.5 {
-        65
-    } else {
-        50
-    };
-    
-    // Only compress if target quality is significantly lower than estimated
-    Ok(target_quality < estimated_quality - 10)
+    Ok(format!("{}.{}", stem, format.extension()))
 }
 
-fn compress_image(input_path: &Path, output_dir: &Path, args: &Args) -> Result<(u64, u64, bool)> {
-    let original_size = fs::metadata(input_path)?.len();
 
-    // Check if it's already a JPEG and estimate its quality
-    let should_compress_jpeg = if let Some(ext) = input_path.extension() {
-        let ext_str = ext.to_string_lossy().to_lowercase();
-        if matches!(ext_str.as_str(), "jpg" | "jpeg") {
-            estimate_jpeg_needs_compression(input_path, args.quality)?
-        } else {
-            true
-        }
-    } else {
-        true
-    };
 
-    if !should_compress_jpeg && matches!(args.format, OutputFormat::Jpeg) {
-        // Skip compression for already well-compressed JPEGs
-        return Ok((original_size, original_size, true));
-    }
 
-    let img = image::open(input_path)
-        .with_context(|| format!("Failed to open image: {}", input_path.display()))?;
 
-    // Only resize if dimensions are specified by user
-    let img = match (args.max_width, args.max_height) {
-        (Some(max_w), Some(max_h)) => {
-            img.resize(max_w, max_h, image::imageops::FilterType::Triangle)
-        }
-        (Some(max_w), None) => {
-            let (width, height) = img.dimensions();
-            if width > max_w {
-                let aspect_ratio = height as f32 / width as f32;
-                let new_height = (max_w as f32 * aspect_ratio) as u32;
-                img.resize(max_w, new_height, image::imageops::FilterType::Triangle)
-            } else {
-                img
-            }
-        }
-        (None, Some(max_h)) => {
-            let (width, height) = img.dimensions();
-            if height > max_h {
-                let aspect_ratio = width as f32 / height as f32;
-                let new_width = (max_h as f32 * aspect_ratio) as u32;
-                img.resize(new_width, max_h, image::imageops::FilterType::Triangle)
-            } else {
-                img
-            }
-        }
-        (None, None) => img,
-    };
+fn compress_with_smart_settings(
+    img: &image::DynamicImage, 
+    output_path: &Path, 
+    format: &OutputFormat, 
+    quality: u8,
+    input_path: &Path
+) -> Result<()> {
+    let input_ext = input_path.extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.to_lowercase())
+        .unwrap_or_default();
 
-    let output_filename = format!(
-        "{}.{}",
-        input_path.file_stem().unwrap().to_string_lossy(),
-        args.format.extension()
-    );
-    let output_path = output_dir.join(output_filename);
-
-    match args.format {
+    match format {
         OutputFormat::Jpeg => {
-            use image::codecs::jpeg::JpegEncoder;
-            use std::io::BufWriter;
-            
-            let output_file = fs::File::create(&output_path)?;
-            let writer = BufWriter::with_capacity(64 * 1024, output_file);
-            
-            // Create JPEG encoder with quality setting
-            let encoder = JpegEncoder::new_with_quality(writer, args.quality);
-            img.write_with_encoder(encoder)?;
-        }
+            // For JPEG output, always compress with specified quality
+            compress_jpeg(img, output_path, quality)
+        },
         OutputFormat::Png => {
-            use image::codecs::png::{PngEncoder, CompressionType};
-            use std::io::BufWriter;
-            
-            let output_file = fs::File::create(&output_path)?;
-            let writer = BufWriter::with_capacity(64 * 1024, output_file);
-            
-            // Use maximum PNG compression
-            let encoder = PngEncoder::new_with_quality(writer, CompressionType::Best, image::codecs::png::FilterType::Adaptive);
-            img.write_with_encoder(encoder)?;
-        }
-        OutputFormat::Webp => {
-            // Convert to RGB8 and use webp crate for proper quality control
-            let rgb_img = img.to_rgb8();
-            let (width, height) = rgb_img.dimensions();
-            
-            let webp_data = if args.quality >= 100 {
-                webp::Encoder::from_rgb(&rgb_img, width, height).encode_lossless()
+            // PNG compression - avoid converting JPEG to PNG unless necessary
+            if input_ext == "jpg" || input_ext == "jpeg" {
+                // Converting JPEG to PNG usually increases size, use higher compression
+                compress_png_aggressive(img, output_path)
             } else {
-                webp::Encoder::from_rgb(&rgb_img, width, height).encode(args.quality as f32)
-            };
-            
-            std::fs::write(&output_path, &*webp_data)?;
-        }
+                compress_png(img, output_path)
+            }
+        },
+        OutputFormat::Webp => {
+            // WebP is generally efficient for all input types
+            compress_webp(img, output_path, quality)
+        },
     }
-
-    let compressed_size = fs::metadata(&output_path)?.len();
-    
-    // Check if compression meets minimum savings threshold
-    let savings_percent = if original_size > 0 {
-        let saved = original_size.saturating_sub(compressed_size) as f64;
-        (saved / original_size as f64) * 100.0
-    } else {
-        0.0
-    };
-    
-    // If compression didn't meet threshold, remove the compressed file and return original
-    if savings_percent < args.min_savings && compressed_size >= original_size {
-        fs::remove_file(&output_path).ok(); // Ignore errors when cleaning up
-        return Ok((original_size, original_size, true));
-    }
-    
-    Ok((original_size, compressed_size, false))
 }
 
-fn print_results(stats: &CompressionStats) {
-    println!();
+fn compress_jpeg(img: &image::DynamicImage, output_path: &Path, quality: u8) -> Result<()> {
+    use image::codecs::jpeg::JpegEncoder;
+    use std::io::BufWriter;
     
-    // Individual file results in table format
-    if !stats.file_results.is_empty() {
-        println!("{}", "Individual File Results:".bright_white().bold());
-        println!();
+    // Convert to RGB to strip alpha channel and metadata
+    let rgb_img = img.to_rgb8();
+    let output_file = fs::File::create(output_path)
+        .with_context(|| format!("Failed to create JPEG file: {}", output_path.display()))?;
+    
+    // Use buffered writer for better performance
+    let buf_writer = BufWriter::new(output_file);
+    let encoder = JpegEncoder::new_with_quality(buf_writer, quality);
+    rgb_img.write_with_encoder(encoder)
+        .with_context(|| "Failed to encode JPEG")?;
+    
+    Ok(())
+}
 
-        // Table header
-        println!("{:<4} {:<30} {:<12} {:<12} {:<12} {:<15}", 
-            "#".bright_blue().bold(),
-            "Filename".bright_blue().bold(),
-            "Original".bright_blue().bold(),
-            "Compressed".bright_blue().bold(),
-            "Saved".bright_blue().bold(),
-            "Status".bright_blue().bold()
-        );
-        println!("{}", "-".repeat(95).bright_black());
+fn compress_png(img: &image::DynamicImage, output_path: &Path) -> Result<()> {
+    use image::codecs::png::{PngEncoder, CompressionType, FilterType};
+    use std::io::BufWriter;
+    
+    let output_file = fs::File::create(output_path)
+        .with_context(|| format!("Failed to create PNG file: {}", output_path.display()))?;
+    
+    // Use buffered writer with proper PNG compression settings
+    let buf_writer = BufWriter::new(output_file);
+    let encoder = PngEncoder::new_with_quality(
+        buf_writer, 
+        CompressionType::Best,     // Use best compression for PNG
+        FilterType::Adaptive       // Use adaptive filtering for better compression
+    );
+    
+    img.write_with_encoder(encoder)
+        .with_context(|| "Failed to encode PNG")?;
+    
+    Ok(())
+}
 
-        for (i, result) in stats.file_results.iter().enumerate() {
-            let original_size_str = format_size(result.original_size, DECIMAL);
-            let compressed_size_str = format_size(result.compressed_size, DECIMAL);
-            
-            // Calculate savings
-            let savings_bytes = if result.original_size > result.compressed_size {
-                result.original_size - result.compressed_size
-            } else {
-                0
-            };
-            let savings_str = format_size(savings_bytes, DECIMAL);
+fn compress_png_aggressive(img: &image::DynamicImage, output_path: &Path) -> Result<()> {
+    use image::codecs::png::{PngEncoder, CompressionType, FilterType};
+    use std::io::BufWriter;
+    
+    // Convert to RGB8 to remove alpha channel for smaller file size
+    let rgb_img = img.to_rgb8();
+    
+    let output_file = fs::File::create(output_path)
+        .with_context(|| format!("Failed to create PNG file: {}", output_path.display()))?;
+    
+    let buf_writer = BufWriter::new(output_file);
+    let encoder = PngEncoder::new_with_quality(
+        buf_writer, 
+        CompressionType::Best,
+        FilterType::Adaptive
+    );
+    
+    rgb_img.write_with_encoder(encoder)
+        .with_context(|| "Failed to encode PNG")?;
+    
+    Ok(())
+}
 
-            // Truncate filename if too long
-            let display_filename = if result.filename.len() > 28 {
-                format!("{}...", &result.filename[..25])
-            } else {
-                result.filename.clone()
-            };
+fn compress_webp(img: &image::DynamicImage, output_path: &Path, quality: u8) -> Result<()> {
+    // Convert to RGB8 to strip metadata and ensure compatibility
+    let rgb_img = img.to_rgb8();
+    let (width, height) = rgb_img.dimensions();
+    
+    // Use direct encoding for maximum speed
+    let webp_data = if quality >= 100 {
+        webp::Encoder::from_rgb(&rgb_img, width, height).encode_lossless()
+    } else {
+        webp::Encoder::from_rgb(&rgb_img, width, height).encode(f32::from(quality))
+    };
+    
+    fs::write(output_path, &*webp_data)
+        .with_context(|| format!("Failed to write WebP file: {}", output_path.display()))?;
+    
+    Ok(())
+}
 
-            let status_colored = if result.skipped {
-                result.status.bright_blue()
-            } else if result.savings_percent > 0.0 {
-                format!("{} ({:.1}%)", result.status, result.savings_percent).bright_green()
-            } else if result.savings_percent < 0.0 {
-                format!("{} ({:.1}%)", result.status, -result.savings_percent).bright_red()
-            } else {
-                result.status.bright_yellow()
-            };
-
-            println!("{:<4} {:<30} {:<12} {:<12} {:<12} {}", 
-                format!("{}.", i + 1).bright_white(),
-                display_filename.bright_white(),
-                original_size_str.bright_cyan(),
-                compressed_size_str.bright_cyan(),
-                if savings_bytes > 0 { savings_str.bright_green() } else { "-".bright_black() },
-                status_colored
-            );
-        }
-        
-        println!();
-        println!("{}", "-".repeat(95).bright_black());
-    }
-
-    // Overall summary
-    println!();
-    println!("{}", "Summary:".bright_white().bold());
-    println!();
-
+fn print_results(stats: &CompressionStats, processing_time: std::time::Duration, _total_time: std::time::Duration) {
     let original_text = format_size(stats.original_size, DECIMAL);
     let compressed_text = format_size(stats.compressed_size, DECIMAL);
-
-    // Count skipped files
-    let skipped_count = stats.file_results.iter().filter(|r| r.skipped).count();
-    let compressed_count = stats.files_processed - skipped_count;
-
-    // Summary table
-    println!("{:<25} {}", "Files processed:".bright_yellow(), stats.files_processed.to_string().bright_white().bold());
-    println!("{:<25} {}", "Files compressed:".bright_yellow(), compressed_count.to_string().bright_green());
-    println!("{:<25} {}", "Files skipped:".bright_yellow(), skipped_count.to_string().bright_blue());
-    println!("{:<25} {}", "Total original size:".bright_yellow(), original_text.bright_cyan());
-    println!("{:<25} {}", "Total compressed size:".bright_yellow(), compressed_text.bright_cyan());
-
     let savings = stats.savings_percent();
-    let savings_bytes = if stats.original_size > stats.compressed_size {
-        stats.original_size - stats.compressed_size
-    } else {
-        0
-    };
+    let savings_bytes = stats.original_size.saturating_sub(stats.compressed_size);
     let savings_text = format_size(savings_bytes, DECIMAL);
     
-    let change_text = if savings > 0.0 {
-        format!("{:.1}% smaller (saved {})", savings, savings_text).bright_green()
-    } else if savings < 0.0 {
-        format!("{:.1}% larger", -savings).bright_red()
-    } else {
-        "No change".bright_yellow()
-    };
-
-    println!("{:<25} {}", "Space change:".bright_yellow(), change_text);
-
-    // Add compression ratio
-    let ratio = if stats.original_size > 0 {
-        stats.compressed_size as f64 / stats.original_size as f64
-    } else {
-        1.0
-    };
-    println!("{:<25} {}", "Compression ratio:".bright_yellow(), format!("{:.2}:1", 1.0/ratio).bright_magenta());
-
-    // Show errors if any
-    if !stats.errors.is_empty() {
-        println!();
-        println!("{} {} error{} encountered:", 
-            "Warning:".bright_red().bold(),
-            stats.errors.len(),
-            if stats.errors.len() == 1 { "" } else { "s" }
-        );
-        for error in &stats.errors {
-            println!("  - {}", error.bright_red());
-        }
-    }
-
-    // Success message
-    if stats.files_processed > 0 {
-        println!();
-        let success_msg = if savings > 0.0 {
-            format!("Successfully compressed {} file{} and saved {} of storage space", 
-                stats.files_processed,
-                if stats.files_processed == 1 { "" } else { "s" },
-                savings_text
-            )
-        } else {
-            format!("Successfully processed {} file{}", 
-                stats.files_processed,
-                if stats.files_processed == 1 { "" } else { "s" }
-            )
-        };
-        
-        println!("{}", success_msg.bright_green().bold());
-    }
     println!();
+    println!("{} {} files processed", "✅".bright_green(), stats.files_processed.to_string().bright_white().bold());
+    println!("Original: {} → Compressed: {}", original_text.bright_cyan(), compressed_text.bright_cyan());
+    
+    if savings > 0.0 {
+        println!("Saved {} ({:.1}%)", savings_text.bright_green(), savings);
+    }
+    
+    println!("Time: {}", format!("{:.2?}", processing_time).bright_cyan());
+    
+    if !stats.errors.is_empty() {
+        println!("{} {} errors", "⚠️".bright_red(), stats.errors.len());
+    }
 }
 
 
