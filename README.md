@@ -10,16 +10,12 @@
                                |_|                        
 </pre>
 
-<div align="center">
-<b><i>Squeeze pixels, not quality!</i> ✨</b>
-</div>
-
 [![Rust](https://img.shields.io/badge/rust-1.70+-orange.svg)](https://www.rust-lang.org)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE)
 [![GitHub](https://img.shields.io/badge/github-SujalXplores/PixelSqueeze-blue.svg)](https://github.com/SujalXplores/PixelSqueeze)
 
 
-<p align="center">
+<p>
 	<img src="https://img.shields.io/github/stars/SujalXplores/PixelSqueeze?style=social" alt="GitHub stars">
 	<img src="https://img.shields.io/github/forks/SujalXplores/PixelSqueeze?style=social" alt="GitHub forks">
 	<img src="https://img.shields.io/github/issues/SujalXplores/PixelSqueeze?color=yellow" alt="GitHub issues">
@@ -48,24 +44,14 @@ PixelSqueeze is a blazingly fast, developer-friendly image compression tool that
 - **Smart Resizing** - Maintain aspect ratios with optional dimension constraints
 - **Progress Tracking** - Real-time progress bars with detailed statistics
 - **Error Resilience** - Graceful error handling with informative messages
-- **🔒 100% Local Processing** - Your images never leave your machine - no uploads, no cloud processing
+- **Metadata Removal** - Automatically strips EXIF and other metadata for privacy and smaller file sizes
+- **100% Local Processing** - Your images never leave your machine - no uploads, no cloud processing
 
 ## ⚡ Installation
 
 ### Quick Install (Recommended)
 ```bash
 cargo install pixelsqueeze
-```
-
-### One-Line Install Scripts
-**Windows (PowerShell):**
-```powershell
-irm https://raw.githubusercontent.com/SujalXplores/PixelSqueeze/main/install.ps1 | iex
-```
-
-**macOS/Linux:**
-```bash
-curl -sSL https://raw.githubusercontent.com/SujalXplores/PixelSqueeze/main/install.sh | bash
 ```
 
 ### Pre-built Binaries
